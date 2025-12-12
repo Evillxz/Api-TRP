@@ -11,9 +11,6 @@ const pool = new Pool({
 
 pool.on('error', (err) => {
   logger.error && logger.error('[API DB] Unexpected error on idle client', err);
-  // Do not exit process here; let handlers return errors and keep the API running
-  // so the bot can fallback to local DB if needed. Exiting would make transient
-  // DB issues take the entire API down.
 });
 
 // Test initial connection and log status
