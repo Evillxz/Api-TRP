@@ -13,7 +13,6 @@ pool.on('error', (err) => {
   logger.error && logger.error('[API DB] Unexpected error on idle client', err);
 });
 
-// Test initial connection and log status
 (async () => {
   try {
     const client = await pool.connect();
@@ -29,21 +28,12 @@ module.exports = {
   pool
 };
 
-// Ensure required tables exist (idempotent)
 async function ensureTables() {
   const queries = [
     `CREATE TABLE IF NOT EXISTS bans (
       id SERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
-      user_tag TEXT NOT NULL,
-      admin_id TEXT NOT NULL,
-      guild_id TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS kicks (
-      id SERIAL PRIMARY KEY,
-      user_id TEXT NOT NULL,
+      user_nickname TEXT NOT NULL,
       user_tag TEXT NOT NULL,
       admin_id TEXT NOT NULL,
       guild_id TEXT NOT NULL,
@@ -75,19 +65,11 @@ async function ensureTables() {
       reason TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
-    `CREATE TABLE IF NOT EXISTS event_registrations (
-      id SERIAL PRIMARY KEY,
-      discord_id TEXT NOT NULL,
-      discord_tag TEXT NOT NULL,
-      game_nick TEXT NOT NULL,
-      game_id TEXT NOT NULL,
-      proof_url TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS register (
+    `CREATE TABLE IF NOT EXISTS member_profile (
       id SERIAL PRIMARY KEY,
       user_name TEXT NOT NULL,
-      user_discord_name TEXT,
+      user_discord_tag TEXT NOT NULL,
+      user_discord_nick TEXT NOT NULL,
       user_id TEXT NOT NULL,
       user_game_id TEXT NOT NULL,
       user_telephone TEXT NOT NULL,
@@ -95,7 +77,9 @@ async function ensureTables() {
       rec_id TEXT NOT NULL,
       approver_id TEXT NOT NULL,
       approver_tag TEXT NOT NULL,
+      approver_nick TEXT NOT NULL,
       guild_id TEXT NOT NULL,
+      recruited_at TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
     `CREATE TABLE IF NOT EXISTS raffle (

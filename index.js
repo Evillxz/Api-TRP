@@ -11,23 +11,21 @@ const logger = require('./utils/logger');
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5500;
 
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(morgan('tiny'));
 
-// Basic rate limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200
 });
 app.use(limiter);
 
-// health
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// All API routes require API key
-// ensure tables then mount routes
 const db = require('./config/db');
 (async () => {
   try {
@@ -44,6 +42,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'internal_error' });
 });
 
-app.listen(PORT, () => {
-  logger.log && logger.log(`API listening on http://localhost:${PORT}`);
+const server = app.listen(PORT, () => {
+  logger.log && logger.log(`[API] Api listening on https://a-p-i-trindade.discloud.app:${PORT}`);
 });
+
+try {
+  const { startWs } = require('./wsServer');
+  const ws = startWs(server);
+  module.exports.ws = ws;
+} catch (err) {
+  logger.error && logger.error('Failed to start WS server:', err && err.message ? err.message : err);
+}
