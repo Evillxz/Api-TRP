@@ -5,6 +5,9 @@ const logger = require('./utils/logger');
 const clients = new Map();
 
 const pending = new Map();
+const globalPending = new Map();
+
+module.exports.globalPending = globalPending;
 
 function startWs(server) {
   const wss = new WebSocket.Server({ server, path: '/ws' });
@@ -40,11 +43,30 @@ function startWs(server) {
             if (msg.status === 'ok') waiter.resolve(msg.data);
             else waiter.reject(new Error(msg.error || 'bot_error'));
           }
+          
+          // Verificar globalPending (para requisições da API de embeds)
+          if (globalPending && globalPending.has(msg.id)) {
+            const globalWaiter = globalPending.get(msg.id);
+            if (globalWaiter) {
+              clearTimeout(globalWaiter.timeout);
+              globalPending.delete(msg.id);
+              if (msg.status === 'ok') globalWaiter.resolve(msg.data);
+              else globalWaiter.reject(new Error(msg.error || 'bot_error'));
+            }
+          }
           return;
         }
 
         if (msg.type === 'event') {
           logger.log && logger.log('[WS event]', msg.event, msg.payload);
+          return;
+        }
+
+        if (msg.type === 'server_data') {
+          // Bot enviando dados do servidor (roles, users, channels, emojis)
+          const botClientStore = require('./utils/botClientStore');
+          botClientStore.setServerData(botId, msg.data);
+          logger.log && logger.log('[WS] Server data received from', botId);
           return;
         }
 
@@ -65,6 +87,10 @@ function startWs(server) {
 
   return {
     clients,
+    globalPending,
+    getClients() {
+      return clients;
+    },
     sendRequestToBot(botId, action, payload, timeout = 5000) {
       const entry = clients.get(botId);
       if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) throw new Error('bot_unavailable');
@@ -83,4 +109,7 @@ function startWs(server) {
   };
 }
 
-module.exports = { startWs };
+module.exports = { 
+  startWs, 
+  getClients: () => clients 
+};

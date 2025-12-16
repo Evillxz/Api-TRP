@@ -80,6 +80,7 @@ async function ensureTables() {
       approver_nick TEXT NOT NULL,
       guild_id TEXT NOT NULL,
       recruited_at TEXT NOT NULL,
+      discord_status TEXT DEFAULT 'offline',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
     `CREATE TABLE IF NOT EXISTS raffle (
@@ -89,7 +90,18 @@ async function ensureTables() {
       discord_id TEXT NOT NULL,
       participating BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`
+    )`,
+    `CREATE TABLE IF NOT EXISTS game_sessions (
+      id SERIAL PRIMARY KEY,
+      user_id VARCHAR(50) NOT NULL,
+      guild_id VARCHAR(50) NOT NULL,
+      game_name VARCHAR(100),
+      started_at TIMESTAMP NOT NULL,
+      ended_at TIMESTAMP NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_sessions_user ON game_sessions(user_id)`,
   ];
 
   for (const q of queries) {

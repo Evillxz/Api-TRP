@@ -19,7 +19,6 @@ const schema = Joi.object({
   recruited_at: Joi.string().required()
 });
 
-// POST /api/bot/register
 router.post('/', async (req, res) => {
   const { error, value } = schema.validate(req.body);
   if (error) return res.status(400).json({ error: 'validation', details: error.details });
@@ -47,15 +46,16 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/bot/register/:userId/:guildId
 router.get('/:userId/:guildId', async (req, res) => {
   const { userId, guildId } = req.params;
   try {
-    const r = await db.query('SELECT * FROM register WHERE user_id = $1 AND guild_id = $2 LIMIT 1', [userId, guildId]);
+    const r = await db.query('SELECT * FROM member_profile WHERE user_id = $1 AND guild_id = $2 LIMIT 1', [userId, guildId]);
     res.json(r.rows[0] || null);
   } catch (err) {
     res.status(500).json({ error: 'db_error', detail: err.message });
   }
 });
+
+
 
 module.exports = router;

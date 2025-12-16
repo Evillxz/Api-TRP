@@ -11,6 +11,7 @@ router.post('/add', async (req, res) => {
     const r = await db.query(q, [user_id, user_nickname, user_tag, admin_id, guild_id, reason]);
     res.json({ id: r.rows[0].id });
   } catch (err) {
+    console.error('[API] POST /api/bot/bans/add error:', err);
     res.status(500).json({ error: 'db_error', detail: err.message });
   }
 });
