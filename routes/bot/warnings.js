@@ -4,12 +4,20 @@ const db = require('../../config/db');
 
 // POST /api/bot/warnings/add
 router.post('/add', async (req, res) => {
-  const { user_id, user_tag, admin_id, guild_id, reason, duration_hours } = req.body;
-  if (!user_id || !user_tag || !admin_id || !guild_id || !reason) return res.status(400).json({ error: 'missing_fields' });
+  const { user_id, user_tag, user_nickname, admin_id, admin_tag, admin_nickname, guild_id, reason, duration_hours, level } = req.body;
+  if (!user_id || !user_tag || !user_nickname || !admin_id || !admin_tag || !admin_nickname || !guild_id || !reason) return res.status(400).json({ error: 'missing_fields' });
   try {
-    const q = `INSERT INTO warnings (user_id, user_tag, admin_id, guild_id, reason, duration_hours, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`;
-    const expiresAt = duration_hours ? new Date(Date.now() + duration_hours * 60 * 60 * 1000).toISOString() : null;
-    const r = await db.query(q, [user_id, user_tag, admin_id, guild_id, reason, duration_hours || null, expiresAt]);
+    
+    let expires_at = null;
+    if (duration_hours) {
+      const hours = parseInt(duration_hours);
+      if (!isNaN(hours)) {
+        expires_at = new Date(Date.now() + hours * 60 * 60 * 1000);
+      }
+    }
+
+    const q = `INSERT INTO warnings (user_id, user_tag, user_nickname, admin_id, admin_tag, admin_nickname, guild_id, reason, duration_hours, level, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, $11) RETURNING id`;
+    const r = await db.query(q, [user_id, user_tag, user_nickname, admin_id, admin_tag, admin_nickname, guild_id, reason, duration_hours || null, level || null, expires_at]);
     res.json({ id: r.rows[0].id });
   } catch (err) {
     res.status(500).json({ error: 'db_error', detail: err.message });
@@ -41,21 +49,8 @@ router.get('/all/:userId/:guildId', async (req, res) => {
 // GET /api/bot/warnings/expired
 router.get('/expired', async (req, res) => {
   try {
-    const now = new Date().toISOString();
-    const r = await db.query('SELECT * FROM warnings WHERE expires_at IS NOT NULL AND expires_at <= $1 AND is_active = true', [now]);
+    const r = await db.query('SELECT * FROM warnings WHERE expires_at IS NOT NULL AND expires_at <= NOW() AND is_active = true');
     res.json(r.rows);
-  } catch (err) {
-    res.status(500).json({ error: 'db_error', detail: err.message });
-  }
-});
-
-// POST /api/bot/warnings/clear
-router.post('/clear', async (req, res) => {
-  const { user_id, guild_id } = req.body;
-  if (!user_id || !guild_id) return res.status(400).json({ error: 'missing_fields' });
-  try {
-    const r = await db.query('UPDATE warnings SET is_active = false WHERE user_id = $1 AND guild_id = $2 AND is_active = true', [user_id, guild_id]);
-    res.json({ changed: r.rowCount });
   } catch (err) {
     res.status(500).json({ error: 'db_error', detail: err.message });
   }
@@ -76,8 +71,7 @@ router.get('/active_guild/:guildId', async (req, res) => {
 // POST /api/bot/warnings/expire
 router.post('/expire', async (req, res) => {
   try {
-    const now = new Date().toISOString();
-    const r = await db.query('UPDATE warnings SET is_active = false WHERE expires_at IS NOT NULL AND expires_at <= $1 AND is_active = true', [now]);
+    const r = await db.query('UPDATE warnings SET is_active = false WHERE expires_at IS NOT NULL AND expires_at <= NOW() AND is_active = true');
     res.json({ changed: r.rowCount });
   } catch (err) {
     res.status(500).json({ error: 'db_error', detail: err.message });

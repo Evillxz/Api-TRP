@@ -56,6 +56,4 @@ router.get('/:userId/:guildId', async (req, res) => {
   }
 });
 
-
-
 module.exports = router;

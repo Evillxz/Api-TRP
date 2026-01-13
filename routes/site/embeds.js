@@ -6,76 +6,69 @@ const logger = require('../../utils/logger');
 module.exports = (wsManager) => {
   router.post('/send', async (req, res) => {
     try {
-      const { channelId, content, embed } = req.body;
+      const { channelId, content, embed, embeds, editLastMessage } = req.body;
 
-      // Validação de campos obrigatórios
       if (!channelId) {
         return res.status(400).json({ error: 'ID do canal é obrigatório' });
       }
 
-      if (!content && !embed) {
+      if (!content && !embed && (!embeds || embeds.length === 0)) {
         return res.status(400).json({ error: 'Conteúdo de mensagem ou embed é obrigatório' });
       }
 
-      // Obter os clientes conectados via WebSocket
       const clients = wsManager.getClients();
 
       if (!clients || clients.size === 0) {
         return res.status(503).json({ error: 'Bot não está disponível no momento' });
       }
 
-      // Obter o primeiro bot conectado
       const [botId, botInfo] = clients.entries().next().value;
 
       if (!botInfo || !botInfo.ws) {
         return res.status(503).json({ error: 'Conexão com o bot falhou' });
       }
 
-      // Preparar a embed se fornecida
-      const embedData = {};
-      if (embed) {
-        if (embed.title) embedData.title = embed.title;
-        if (embed.description) embedData.description = embed.description;
-        if (embed.url) embedData.url = embed.url;
-        if (embed.color) embedData.color = parseInt(embed.color, 16);
+      const formatEmbed = (emb) => {
+        const embedData = {};
+        if (emb.title) embedData.title = emb.title;
+        if (emb.description) embedData.description = emb.description;
+        if (emb.url) embedData.url = emb.url;
+        if (emb.color) embedData.color = parseInt(emb.color, 16);
 
-        if (embed.author && embed.author.name) {
-          embedData.author = {
-            name: embed.author.name,
-          };
-          if (embed.author.icon_url) embedData.author.icon_url = embed.author.icon_url;
-          if (embed.author.url) embedData.author.url = embed.author.url;
+        if (emb.author && emb.author.name) {
+          embedData.author = { name: emb.author.name };
+          if (emb.author.icon_url) embedData.author.icon_url = emb.author.icon_url;
+          if (emb.author.url) embedData.author.url = emb.author.url;
         }
 
-        if (embed.thumbnail && embed.thumbnail.url) {
-          embedData.thumbnail = { url: embed.thumbnail.url };
-        }
+        if (emb.thumbnail && emb.thumbnail.url) embedData.thumbnail = { url: emb.thumbnail.url };
+        if (emb.image && emb.image.url) embedData.image = { url: emb.image.url };
 
-        if (embed.image && embed.image.url) {
-          embedData.image = { url: embed.image.url };
-        }
-
-        if (Array.isArray(embed.fields) && embed.fields.length > 0) {
-          embedData.fields = embed.fields.map(field => ({
+        if (Array.isArray(emb.fields) && emb.fields.length > 0) {
+          embedData.fields = emb.fields.map(field => ({
             name: field.name,
             value: field.value,
             inline: field.inline || false,
           }));
         }
 
-        if (embed.footer && embed.footer.text) {
-          embedData.footer = {
-            text: embed.footer.text,
-          };
-          if (embed.footer.icon_url) embedData.footer.icon_url = embed.footer.icon_url;
+        if (emb.footer && emb.footer.text) {
+          embedData.footer = { text: emb.footer.text };
+          if (emb.footer.icon_url) embedData.footer.icon_url = emb.footer.icon_url;
         }
 
-        if (embed.timestamp) {
-          embedData.timestamp = new Date(embed.timestamp).toISOString();
-        }
+        if (emb.timestamp) embedData.timestamp = new Date(emb.timestamp).toISOString();
+        
+        return embedData;
+      };
+
+      let finalEmbeds = [];
+      if (embeds && Array.isArray(embeds)) {
+        finalEmbeds = embeds.map(formatEmbed);
+      } else if (embed) {
+        finalEmbeds = [formatEmbed(embed)];
       }
 
-      // Enviar requisição para o bot via WebSocket
       const requestId = uuidv4();
       const payload = {
         type: 'request',
@@ -84,11 +77,11 @@ module.exports = (wsManager) => {
         payload: {
           channelId,
           content: content || undefined,
-          embed: Object.keys(embedData).length > 0 ? embedData : undefined,
+          embeds: finalEmbeds.length > 0 ? finalEmbeds : undefined,
+          editLastMessage: editLastMessage || false,
         },
       };
 
-      // Promise que aguarda a resposta do bot
       const responsePromise = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           wsManager.globalPending.delete(requestId);
@@ -98,7 +91,6 @@ module.exports = (wsManager) => {
         wsManager.globalPending.set(requestId, { resolve, reject, timeout });
       });
 
-      // Enviar para o bot
       botInfo.ws.send(JSON.stringify(payload));
 
       try {

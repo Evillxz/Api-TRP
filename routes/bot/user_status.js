@@ -4,21 +4,44 @@ const logger = require('../../utils/logger');
 
 const userStatusCache = new Map();
 
-
-function updateUserStatus(userId, status, roles = []) {
-  userStatusCache.set(userId, {
-    status: status,
-    roles: roles,
-    updatedAt: new Date()
-  });
+function updateUserStatus(userId, status, roles, extraData = {}) {
+  const existingData = userStatusCache.get(userId) || {};
   
-  const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+  const finalRoles = roles !== undefined ? roles : (existingData.roles || []);
+  
+  const finalData = {
+    ...existingData,
+    ...extraData,
+    status: status,
+    roles: finalRoles,
+    updatedAt: new Date()
+  };
+
+  userStatusCache.set(userId, finalData);
+  
+  const fiveMinutesAgo = Date.now() - (15 * 60 * 1000); // Aumentado para 15 min
   for (const [key, value] of userStatusCache.entries()) {
     if (value.updatedAt < fiveMinutesAgo) {
       userStatusCache.delete(key);
     }
   }
 }
+
+router.get('/', async (req, res) => {
+  try {
+    const users = [];
+    for (const [userId, data] of userStatusCache.entries()) {
+      users.push({
+        userId,
+        ...data
+      });
+    }
+    res.json(users);
+  } catch (err) {
+    logger.error('Erro ao listar usuários:', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
 
 router.get('/:userId', async (req, res) => {
   try {
@@ -56,7 +79,9 @@ router.post('/batch', async (req, res) => {
     
     users.forEach(user => {
       if (user.userId && user.status) {
-        updateUserStatus(user.userId, user.status, user.roles || []);
+        const { userId, status, roles, ...extraData } = user;
+
+        updateUserStatus(userId, status, roles, extraData);
       }
     });
     

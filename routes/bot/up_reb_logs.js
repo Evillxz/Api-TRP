@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../config/db');
 
-// POST /api/bot/up_reb_logs/add
 router.post('/add', async (req, res) => {
   const { action_type, user_id, user_tag, admin_id, admin_tag, guild_id, old_role_id, new_role_id, reason } = req.body;
   if (!action_type || !user_id || !user_tag || !admin_id || !admin_tag || !guild_id || !old_role_id || !new_role_id || !reason) return res.status(400).json({ error: 'missing_fields' });
@@ -15,7 +14,6 @@ router.post('/add', async (req, res) => {
   }
 });
 
-// GET /api/bot/up_reb_logs/:guildId
 router.get('/:guildId', async (req, res) => {
   const guildId = req.params.guildId;
   const limit = req.query.limit ? parseInt(req.query.limit, 10) : 20;

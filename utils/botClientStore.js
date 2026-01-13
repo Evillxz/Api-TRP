@@ -12,16 +12,34 @@ const getServerData = (botId) => {
 };
 
 const getAllServerData = () => {
+  
   for (const [botId, entry] of serverDataByBot.entries()) {
     if (entry && entry.data) {
       return entry.data;
     }
   }
+  
+  console.warn('[botClientStore] Nenhum dado encontrado');
   return null;
+};
+
+const isBotConnected = () => {
+  for (const [botId, entry] of serverDataByBot.entries()) {
+    if (entry && entry.timestamp && (Date.now() - entry.timestamp) < 300000) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const removeServerData = (botId) => {
+  const deleted = serverDataByBot.delete(botId);
 };
 
 module.exports = {
   setServerData,
   getServerData,
-  getAllServerData
+  getAllServerData,
+  isBotConnected,
+  removeServerData
 };

@@ -2,18 +2,19 @@ const express = require('express');
 const router = express.Router();
 const botClientStore = require('../../utils/botClientStore');
 
-// Dados em cache para evitar muitas chamadas ao Discord
 let serverDataCache = {
   data: null,
   timestamp: 0,
-  CACHE_DURATION: 5 * 60 * 1000 // 5 minutos
+  CACHE_DURATION: 25 * 1000
 };
 
-const GUILD_ID = process.env.GUILD_ID || '1295702106195492894';
+function invalidateCache() {
+  serverDataCache.data = null;
+  serverDataCache.timestamp = 0;
+  console.log('[Server Data] Cache invalidated');
+}
 
-// Função para buscar dados do servidor
 async function fetchServerData() {
-  // Tenta obter dados já enviados pelo bot via WebSocket
   const botData = botClientStore.getAllServerData();
   if (botData) {
     console.log('[Server Data] Usando dados do bot via WebSocket');
@@ -27,12 +28,10 @@ async function fetchServerData() {
 async function getOrFetchServerData() {
   const now = Date.now();
   
-  // Se temos cache válido, retorna
   if (serverDataCache.data && (now - serverDataCache.timestamp) < serverDataCache.CACHE_DURATION) {
     return serverDataCache.data;
   }
 
-  // Caso contrário, busca dados frescos
   const data = await fetchServerData();
   if (data) {
     serverDataCache.data = data;
@@ -93,3 +92,4 @@ router.get('/all', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.invalidateCache = invalidateCache;

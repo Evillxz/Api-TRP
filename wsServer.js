@@ -7,7 +7,38 @@ const clients = new Map();
 const pending = new Map();
 const globalPending = new Map();
 
-module.exports.globalPending = globalPending;
+const sendToBot = function(action, payload) {
+  return new Promise((resolve, reject) => {
+    const botId = clients.keys().next().value;
+    if (!botId) {
+      return reject(new Error('Nenhum bot conectado'));
+    }
+
+    const client = clients.get(botId);
+    if (!client || client.ws.readyState !== WebSocket.OPEN) {
+      return reject(new Error('Bot desconectado'));
+    }
+
+    const id = uuidv4();
+    const msg = {
+      type: 'request',
+      id,
+      action,
+      payload
+    };
+
+    // Timeout de 30s
+    const timeout = setTimeout(() => {
+      if (globalPending.has(id)) {
+        globalPending.delete(id);
+        reject(new Error('Timeout aguardando resposta do bot'));
+      }
+    }, 30000);
+
+    globalPending.set(id, { resolve, reject, timeout });
+    client.ws.send(JSON.stringify(msg));
+  });
+};
 
 function startWs(server) {
   const wss = new WebSocket.Server({ server, path: '/ws' });
@@ -66,7 +97,17 @@ function startWs(server) {
           // Bot enviando dados do servidor (roles, users, channels, emojis)
           const botClientStore = require('./utils/botClientStore');
           botClientStore.setServerData(botId, msg.data);
-          logger.log && logger.log('[WS] Server data received from', botId);
+          
+          // Invalidar cache da API quando receber dados novos
+          const serverDataRoute = require('./routes/site/server-data');
+          if (serverDataRoute.invalidateCache) {
+            serverDataRoute.invalidateCache();
+            console.log('[WS] Cache da API invalidado');
+          } else {
+            console.warn('[WS] Função invalidateCache não encontrada');
+          }
+          
+          logger.log && logger.log('[WS] Server data received and cache invalidated for', botId);
           return;
         }
 
@@ -78,7 +119,12 @@ function startWs(server) {
     ws.on('close', () => {
       if (botId) {
         clients.delete(botId);
-        logger.log && logger.log(`[WS] Bot disconnected: ${botId}`);
+        
+        // Limpar dados do bot desconectado
+        const botClientStore = require('./utils/botClientStore');
+        botClientStore.removeServerData(botId);
+        
+        logger.log && logger.log(`[WS] Bot disconnected and data cleared: ${botId}`);
       }
     });
   });
@@ -91,25 +137,30 @@ function startWs(server) {
     getClients() {
       return clients;
     },
-    sendRequestToBot(botId, action, payload, timeout = 5000) {
-      const entry = clients.get(botId);
-      if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) throw new Error('bot_unavailable');
-      const id = uuidv4();
-      const req = { type: 'request', id, action, payload };
-      logger.log && logger.log('[WS] sendRequestToBot ->', { botId, id, action, payload });
-      return new Promise((resolve, reject) => {
-        const t = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error('timeout'));
-        }, timeout);
-        pending.set(id, { resolve, reject, timeout: t });
-        entry.ws.send(JSON.stringify(req));
-      });
-    }
+    sendRequestToBot
   };
+}
+
+function sendRequestToBot(botId, action, payload, timeout = 5000) {
+  const entry = clients.get(botId);
+  if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) throw new Error('bot_unavailable');
+  const id = uuidv4();
+  const req = { type: 'request', id, action, payload };
+  // logger.log && logger.log('[WS] sendRequestToBot ->', { botId, id, action, payload });
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error('timeout'));
+    }, timeout);
+    pending.set(id, { resolve, reject, timeout: t });
+    entry.ws.send(JSON.stringify(req));
+  });
 }
 
 module.exports = { 
   startWs, 
-  getClients: () => clients 
+  getClients: () => clients,
+  sendRequestToBot,
+  sendToBot,
+  globalPending
 };

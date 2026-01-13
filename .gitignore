@@ -1,8 +1,6 @@
 node_modules/
-.env
-.env.local
-.env.example
-.DS_Store
+.env.development
+.env.production
 package-lock.json
 bot.db
 logs/
