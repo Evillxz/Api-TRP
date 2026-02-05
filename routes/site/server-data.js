@@ -1,95 +1,87 @@
 const express = require('express');
 const router = express.Router();
-const botClientStore = require('../../utils/botClientStore');
+const { sendRequest } = require('../../wsServer');
 
-let serverDataCache = {
-  data: null,
-  timestamp: 0,
-  CACHE_DURATION: 25 * 1000
-};
+const GUILD_ID = '1295702106195492894';
 
-function invalidateCache() {
-  serverDataCache.data = null;
-  serverDataCache.timestamp = 0;
-  console.log('[Server Data] Cache invalidated');
-}
-
-async function fetchServerData() {
-  const botData = botClientStore.getAllServerData();
-  if (botData) {
-    console.log('[Server Data] Usando dados do bot via WebSocket');
-    return botData;
-  }
-
-  console.warn('[Server Data] Dados do bot não disponível via WebSocket');
-  return null;
-}
-
-async function getOrFetchServerData() {
-  const now = Date.now();
-  
-  if (serverDataCache.data && (now - serverDataCache.timestamp) < serverDataCache.CACHE_DURATION) {
-    return serverDataCache.data;
-  }
-
-  const data = await fetchServerData();
-  if (data) {
-    serverDataCache.data = data;
-    serverDataCache.timestamp = now;
-  }
-
-  return data || { roles: [], users: [], channels: [], emojis: [] };
-}
-
-router.get('/roles', async (req, res) => {
+router.get('/roles', async (_req, res) => {
   try {
-    const data = await getOrFetchServerData();
+    const result = await sendRequest('get_guild_info', { guildId: GUILD_ID });
+    
+    const data = result.success ? result.data : {};
     res.json({ roles: data.roles || [] });
   } catch (error) {
     console.error('[Server Data] Error fetching roles:', error);
-    res.status(500).json({ error: 'Falha ao buscar roles' });
+    res.status(500).json({ error: 'Falha ao buscar roles', roles: [] });
   }
 });
 
-router.get('/users', async (req, res) => {
+router.get('/channels', async (_req, res) => {
   try {
-    const data = await getOrFetchServerData();
-    res.json({ users: data.users || [] });
-  } catch (error) {
-    console.error('[Server Data] Error fetching users:', error);
-    res.status(500).json({ error: 'Falha ao buscar usuários' });
-  }
-});
-
-router.get('/channels', async (req, res) => {
-  try {
-    const data = await getOrFetchServerData();
+    const result = await sendRequest('get_guild_info', { guildId: GUILD_ID });
+    
+    const data = result.success ? result.data : {};
     res.json({ channels: data.channels || [] });
   } catch (error) {
     console.error('[Server Data] Error fetching channels:', error);
-    res.status(500).json({ error: 'Falha ao buscar canais' });
+    res.status(500).json({ error: 'Falha ao buscar canais', channels: [] });
   }
 });
 
-router.get('/emojis', async (req, res) => {
+router.get('/users', async (_req, res) => {
   try {
-    const data = await getOrFetchServerData();
+    const result = await sendRequest('get_guild_members', { 
+      guildId: GUILD_ID,
+      page: 1,
+      limit: 600 
+    });
+
+    const members = (result.success && result.data) ? result.data.members : [];
+    
+    res.json({ users: members });
+  } catch (error) {
+    console.error('[Server Data] Error fetching users:', error);
+    res.status(500).json({ error: 'Falha ao buscar usuários', users: [] });
+  }
+});
+
+router.get('/emojis', async (_req, res) => {
+  try {
+    const result = await sendRequest('get_guild_info', { guildId: GUILD_ID });
+
+    const data = result.success ? result.data : {};
     res.json({ emojis: data.emojis || [] });
   } catch (error) {
     console.error('[Server Data] Error fetching emojis:', error);
-    res.status(500).json({ error: 'Falha ao buscar emojis' });
+    res.status(500).json({ error: 'Falha ao buscar emojis', emojis: [] });
   }
 });
 
-router.get('/all', async (req, res) => {
+router.get('/all', async (_req, res) => {
   try {
-    const data = await getOrFetchServerData();
-    res.json(data);
+    const [infoResult, membersResult] = await Promise.all([
+      sendRequest('get_guild_info', { guildId: GUILD_ID }),
+      sendRequest('get_guild_members', { guildId: GUILD_ID, page: 1, limit: 600 })
+    ]);
+
+    const infoData = infoResult.success ? infoResult.data : {};
+    const membersData = membersResult.success ? membersResult.data : {};
+
+    const response = {
+      roles: infoData.roles || [],
+      channels: infoData.channels || [],
+      users: membersData.members || [],
+      emojis: infoData.emojis || [] 
+    };
+
+    res.json(response);
   } catch (error) {
     console.error('[Server Data] Error fetching all data:', error);
-    res.status(500).json({ error: 'Falha ao buscar dados do servidor' });
+    res.status(500).json({ 
+      error: 'Falha ao buscar dados do servidor',
+      roles: [], channels: [], users: [], emojis: []
+    });
   }
 });
 
 module.exports = router;
-module.exports.invalidateCache = invalidateCache;

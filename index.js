@@ -1,11 +1,12 @@
+require('module-alias/register');
 const path = require('path');
 const dotenv = require('dotenv');
+const http = require('http');
+const chalk = require('chalk');
 
-const envFile = process.env.NODE_ENV === 'production' 
-  ? '.env.production' 
-  : '.env.development';
-
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
 dotenv.config({ path: path.resolve(__dirname, envFile) });
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -14,18 +15,56 @@ const rateLimit = require('express-rate-limit');
 const routes = require('./routes');
 const requireApiKey = require('./middleware/auth');
 const logger = require('./utils/logger');
+const db = require('./config/db');
+const { startWs } = require('./wsServer');
+const { formatUptime } = require('./utils/formatTime');
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5500;
+const server = http.createServer(app);
+
+let requestCount = 0;
+
+app.use((_req, _res, next) => {
+  requestCount++;
+  next();
+});
 
 app.set('trust proxy', 1);
-
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization', 'Cache-Control', 'Pragma', 'Expires']
+}));
+
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
-app.use(morgan('tiny', {
-  skip: (req, res) => req.url.startsWith('/api/site/status')
+
+morgan.token('custom-date', () => {
+  const now = new Date();
+  const pad = (num) => (num < 10 ? '0' + num : num);
+  
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  
+  return `${date} ${time}`;
+});
+
+morgan.token('status-colored', (_req, res) => {
+  const status = res.statusCode;
+  let color = 0;
+
+  if (status >= 500) color = 31;
+  else if (status >= 400) color = 33; 
+  else if (status >= 300) color = 36; 
+  else if (status >= 200) color = 32; 
+
+  return `\x1b[${color}m${status}\x1b[0m`;
+});
+
+app.use(morgan(':custom-date [\x1b[32minfo\x1b[0m]: [:method] :url :status-colored - :response-time ms', {
+  skip: (req, _res) => req.url.startsWith('/api/site/status')
 }));
 
 const limiter = rateLimit({
@@ -33,97 +72,64 @@ const limiter = rateLimit({
   max: 5000,
   message: { error: 'Too many requests, please try again later.' },
   skip: (req) => {
-    const apiKey = req.headers['x-api-key'] || req.query.api_key;
-    return apiKey === process.env.API_KEY;
+    return req.url.includes('/site') || !!(req.headers['x-api-key'] || req.query.api_key); 
   }
 });
+
 app.use(limiter);
 
-const db = require('./config/db');
-const botClientStore = require('./utils/botClientStore');
+setInterval(() => {
+  const memoriaTotalUsada = process.memoryUsage().rss / 1024 / 1024;
+  const uptimeFormatado = formatUptime(process.uptime());
 
-app.get('/health', (req, res) => res.json({ ok: true }));
+  logger.info(
+    `${chalk.green.bold('[MONITORAMENTO]')} ` +
+    `RAM: ${memoriaTotalUsada.toFixed(2)} MB | ` +
+    `UPTIME: ${uptimeFormatado} | ` +
+    `REQ (15m): ${requestCount}`
+  );
 
-app.use('/api', routes);
+  requestCount = 0;
 
-const uploadRoutes = require('./routes/site/upload');
-app.use('/api/site/upload', (req, res, next) => {
-  console.log(`[API] ${req.method} /api/site/upload`);
-  next();
-}, uploadRoutes);
+}, 15 * 60 * 1000);
 
-const userStatusRoutes = require('./routes/bot/user_status');
-app.use('/api/bot/user_status', userStatusRoutes);
+const authMiddleware = (req, res, next) => {
+  if (req.method === 'OPTIONS') return next();
 
-const memberFlowRoutes = require('./routes/bot/member_flow');
-app.use('/api/bot/member_flow', memberFlowRoutes);
-
-const dashboardRoutes = require('./routes/site/dashboard');
-app.use('/api/site/dashboard', dashboardRoutes);
-
-
-const moderationRoutes = require('./routes/site/moderation');
-app.use('/api/site/moderation', moderationRoutes);
-
-const serverDataRoutes = require('./routes/site/server-data');
-const statusRoutes = require('./routes/site/status');
-const embedsRoutes = require('./routes/site/embeds');
-const recruitmentRoutes = require('./routes/site/recruitment');
-
-app.use('/api/site/server-data', serverDataRoutes);
-app.use('/api/site/status', statusRoutes);
-app.use('/api/site/recruitment', recruitmentRoutes);
-
-let embedsRoutesHandler = null;
-app.use('/api/site/embeds', (req, res, next) => {
-  if (!embedsRoutesHandler) {
-    return res.status(503).json({ error: 'WebSocket server not initialized' });
+  if (req.path.startsWith('/site') || req.url.includes('/site')) {
+    return next();
   }
-  embedsRoutesHandler(req, res, next);
-});
 
-app.post('/api/internal/register-bot', (req, res) => {
-  const { botId, guildCount } = req.body;
-  logger.info && logger.info(`[API Internal] Bot registrado: ${botId} com ${guildCount} guilds`);
-  botClientStore.setServerData(botId, { guildCount, registered: true });
-  res.json({ status: 'ok', message: 'Bot client registered' });
-});
+  return requireApiKey(req, res, next);
+};
+
+app.use('/api', authMiddleware, routes);
 
 (async () => {
   try {
     if (db && db.ensureTables) await db.ensureTables();
+
   } catch (err) {
-    logger.error && logger.error('Failed to ensure DB tables:', err.message || err);
-    process.exit(1);
+    logger.error(`${chalk.red.bold('[DATABASE]')} Erro ao criar tabelas:`, err.message || err);
   }
-  
-  app.use('/api', requireApiKey, routes);
 })();
 
-app.use((err, req, res, next) => {
-  logger.error && logger.error(err);
-  res.status(500).json({ error: 'internal_error' });
+app.use((err, _req, res, _next) => {
+  logger.error(err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'internal_error' });
+  }
 });
 
-const url = process.env.NODE_ENV === 'production' 
-  ? 'https://a-p-i-trindade.discloud.app' 
-  : 'http://localhost';
+try {
+  startWs(server);
+  logger.info(`${chalk.green('[WS SERVER]')} Servidor WS iniciado com sucesso!`);
+} catch (err) {
+  logger.error(`${chalk.red.bold('[WS SERVER]')} Erro ao iniciar o servidor WS:`, err.message);
+}
 
-const server = app.listen(PORT, () => {
-  logger.log && logger.log(`[API] Api listening on ${url}:${PORT}`);
+const url = process.env.NODE_ENV === 'production' ? 'https://a-p-i-trindade.discloud.app' : 'http://localhost';
 
-  try {
-    const { startWs } = require('./wsServer');
-    const ws = startWs(server);
-    embedsRoutesHandler = embedsRoutes(ws);
-    
-    module.exports.ws = ws;
-    logger.log && logger.log('[API] WebSocket server initialized');
-
-    const { startMonitoring } = require('./utils/statusMonitor');
-    startMonitoring(5 * 60 * 1000); 
-
-  } catch (err) {
-    logger.error && logger.error('Failed to start WS server:', err && err.message ? err.message : err);
-  }
+server.listen(PORT, () => {
+  logger.info(`${chalk.hex('#42f59b').bold('[API SERVER]')} Api rodando em ${url}:${PORT}`);
 });

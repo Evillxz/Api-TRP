@@ -1,6 +1,6 @@
 {
   "name": "trp-api",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "private": true,
   "main": "index.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "start": "cross-env NODE_ENV=production node index.js"
   },
   "dependencies": {
+    "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "cross-env": "^10.1.0",
     "discord.js": "^14.25.1",
@@ -16,13 +17,21 @@
     "express-rate-limit": "^6.7.0",
     "helmet": "^6.0.1",
     "joi": "^17.9.2",
+    "module-alias": "^2.2.3",
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
     "pg": "^8.10.0",
     "uuid": "^9.0.0",
+    "winston": "^3.19.0",
     "ws": "^8.13.0"
   },
   "engines": {
     "node": ">=16"
+  },
+  "_moduleAliases": {
+    "logger": "utils/logger.js",
+    "wsServer": "wsServer.js",
+    "formatUptime": "utils/formatUptime.js",
+    "db": "config/db.js"
   }
 }

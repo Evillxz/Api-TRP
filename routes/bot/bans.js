@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../../config/db');
+const db = require('db');
 
 // POST /api/bot/bans/add
 router.post('/add', async (req, res) => {

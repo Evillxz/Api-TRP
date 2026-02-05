@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../../config/db');
+const db = require('db');
 
 router.post('/', async (req, res) => {
   const { user_id, user_tag, action, created_at } = req.body;

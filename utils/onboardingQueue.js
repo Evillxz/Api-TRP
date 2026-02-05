@@ -1,5 +1,5 @@
 const { REST, Routes } = require('discord.js');
-const db = require('../config/db');
+const db = require('db');
 
 class OnboardingQueue {
   constructor() {
@@ -113,31 +113,31 @@ class OnboardingQueue {
 
       if (success) {
         try {
-            const shift = Array.isArray(item.data.turnos) ? item.data.turnos.join(', ') : (item.data.turnos || 'Não informado');
-            
-            await db.query(
-                `INSERT INTO member_profile 
-                (user_name, user_discord_tag, user_discord_nick, user_id, user_game_id, user_telephone, user_shift, rec_id, approver_id, approver_tag, approver_nick, guild_id, recruited_at) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-                [
-                    item.data.nomeJogo || 'Unknown',
-                    'Unknown', // user_discord_tag
-                    item.nickname,
-                    item.userId,
-                    item.data.identificacao || '0000',
-                    item.data.telefone || '000-000',
-                    shift,
-                    String(item.applicationId),
-                    'System', // approver_id
-                    'System', // approver_tag
-                    'System', // approver_nick
-                    this.GUILD_ID,
-                    new Date().toISOString()
-                ]
-            );
-            console.log(`[OnboardingQueue] Perfil de membro criado no banco de dados.`);
+          const shift = Array.isArray(item.data.turnos) ? item.data.turnos.join(', ') : (item.data.turnos || 'Não informado');
+          
+          await db.query(
+              `INSERT INTO member_profile 
+              (user_name, user_discord_tag, user_discord_nick, user_id, user_game_id, user_telephone, user_shift, rec_id, approver_id, approver_tag, approver_nick, guild_id, recruited_at) 
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+              [
+                  item.data.nomeJogo || 'Unknown',
+                  'Unknown', // user_discord_tag
+                  item.nickname,
+                  item.userId,
+                  item.data.identificacao || '0000',
+                  item.data.telefone || '000000',
+                  shift,
+                  String(item.applicationId),
+                  'System', // approver_id
+                  'System', // approver_tag
+                  'System', // approver_nick
+                  this.GUILD_ID,
+                  new Date().toISOString()
+              ]
+          );
+          console.log(`[OnboardingQueue] Perfil de membro criado no banco de dados.`);
         } catch (dbErr) {
-            console.error(`[OnboardingQueue] Erro ao criar perfil de membro:`, dbErr);
+          console.error(`[OnboardingQueue] Erro ao criar perfil de membro:`, dbErr);
         }
       }
 

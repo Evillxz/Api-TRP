@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../../config/db');
+const db = require('db');
 
 router.post('/add', async (req, res) => {
   const { action_type, user_id, user_tag, admin_id, admin_tag, guild_id, old_role_id, new_role_id, reason } = req.body;

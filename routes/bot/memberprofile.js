@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
-const db = require('../../config/db');
+const db = require('db');
 
 const schema = Joi.object({
   user_name: Joi.string().required(),

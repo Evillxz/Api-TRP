@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
-const logger = require('../utils/logger') || console;
+const logger = require('logger');
+const chalk = require('chalk');
 
 const pool = new Pool({
   host: process.env.POSTGRES_HOST || 'localhost',
@@ -10,16 +11,16 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  logger.error && logger.error('[API DB] Unexpected error on idle client', err);
+  logger.error(`${chalk.red.bold('[API DATABASE]')} Unexpected error on idle client`, err);
 });
 
 (async () => {
   try {
     const client = await pool.connect();
     client.release();
-    logger.log && logger.log('[API DB] Connected to Postgres');
+    logger.info(`${chalk.hex('#42f59b').bold('[API DATABASE]')} Conectado ao banco de dados PostgreSQL 17.`);
   } catch (err) {
-    logger.error && logger.error('[API DB] Connection error:', err && err.message ? err.message : err);
+    logger.error(`${chalk.red.bold('[API DATABASE]')} Connection error:`, err && err.message ? err.message : err);
   }
 })();
 
@@ -91,15 +92,6 @@ async function ensureTables() {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
 
-    `CREATE TABLE IF NOT EXISTS raffle (
-      id SERIAL PRIMARY KEY,
-      discord_name TEXT NOT NULL,
-      discord_tag TEXT NOT NULL,
-      discord_id TEXT NOT NULL,
-      participating BOOLEAN DEFAULT true,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )`,
-
     `CREATE TABLE IF NOT EXISTS raffles (
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
@@ -122,19 +114,6 @@ async function ensureTables() {
       joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
 
-    `CREATE TABLE IF NOT EXISTS game_sessions (
-      id SERIAL PRIMARY KEY,
-      user_id VARCHAR(50) NOT NULL,
-      guild_id VARCHAR(50) NOT NULL,
-      game_name VARCHAR(100),
-      started_at TIMESTAMP WITH TIME ZONE NOT NULL,
-      ended_at TIMESTAMP WITH TIME ZONE NOT NULL,
-      duration_minutes INTEGER NOT NULL,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )`,
-
-    `CREATE INDEX IF NOT EXISTS idx_sessions_user ON game_sessions(user_id)`,
-
     `CREATE TABLE IF NOT EXISTS recruitment_cycles (
       id SERIAL PRIMARY KEY,
       is_open BOOLEAN DEFAULT false,
@@ -150,18 +129,10 @@ async function ensureTables() {
       status TEXT NOT NULL,
       data JSONB,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      access_token TEXT NOT NULL
     )`,
 
-    `CREATE TABLE IF NOT EXISTS service_status_logs (
-      id SERIAL PRIMARY KEY,
-      service_name TEXT NOT NULL,
-      status TEXT NOT NULL,
-      latency INTEGER DEFAULT 0,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )`,
-
-    `CREATE INDEX IF NOT EXISTS idx_service_status_created_at ON service_status_logs(created_at)`,
     `CREATE TABLE IF NOT EXISTS member_flow (
       id SERIAL PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -171,11 +142,6 @@ async function ensureTables() {
     )`,
 
     `CREATE INDEX IF NOT EXISTS idx_member_flow_created_at ON member_flow(created_at)`,
-
-    `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS user_nickname TEXT`,
-    `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS admin_tag TEXT`,
-    `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS admin_nickname TEXT`,
-    `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS level INTEGER`
   ];
 
   for (const q of queries) {

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../../config/db');
+const db = require('db');
 
 // POST /api/bot/warnings/add
 router.post('/add', async (req, res) => {
@@ -69,7 +69,7 @@ router.get('/active_guild/:guildId', async (req, res) => {
 });
 
 // POST /api/bot/warnings/expire
-router.post('/expire', async (req, res) => {
+router.post('/expire', async (_req, res) => {
   try {
     const r = await db.query('UPDATE warnings SET is_active = false WHERE expires_at IS NOT NULL AND expires_at <= NOW() AND is_active = true');
     res.json({ changed: r.rowCount });

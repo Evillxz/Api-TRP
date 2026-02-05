@@ -1,15 +1,13 @@
 const express = require('express');
 const multer = require('multer');
 const { Client, AttachmentBuilder } = require('discord.js');
-
 const router = express.Router();
-
 const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     if (!file || !file.mimetype) {
       return cb(new Error('Arquivo inválido'));
     }
@@ -18,14 +16,14 @@ const upload = multer({
     }
     cb(null, true);
   }
+
 });
 
-router.get('/', (req, res) => {
+router.get('/', (_req, res) => {
   res.json({ status: 'Upload endpoint ready' });
 });
 
 router.post('/', upload.single('image'), async (req, res) => {
-  const startTime = Date.now();
   let client = null;
 
   try {
@@ -49,7 +47,6 @@ router.post('/', upload.single('image'), async (req, res) => {
     });
 
     await client.login(DISCORD_BOT_TOKEN);
-
     const channel = await client.channels.fetch(UPLOAD_CHANNEL_ID);
     
     if (!channel) {
@@ -70,7 +67,6 @@ router.post('/', upload.single('image'), async (req, res) => {
     });
 
     const imageUrl = message.attachments.first()?.url;
-
     if (!imageUrl) {
       return res.status(500).json({ error: 'Falha ao obter URL da imagem' });
     }
@@ -92,7 +88,7 @@ router.post('/', upload.single('image'), async (req, res) => {
   }
 });
 
-router.use((err, req, res, next) => {
+router.use((err, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({ error: 'Erro no upload: ' + err.message });
   } else if (err) {

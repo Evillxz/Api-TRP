@@ -1,28 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../../config/db');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const { sendToBot } = require('../../wsServer');
+const db = require('db');
+const logger = require('logger');
+const { sendRequest } = require('wsServer');
 
-// Configurar multer para upload de imagens
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '../../uploads');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-const upload = multer({ storage });
-
-// POST /api/raffle/create
-router.post('/create', upload.none(), async (req, res) => {
+router.post('/create', async (req, res) => {
   const { title, description, max_participants, auto_close_min, auto_close_date, image_url } = req.body;
-  const created_by = req.user?.id || 'admin'; // Assumir admin por enquanto
+  const created_by = req.user?.id || 'admin';
 
   if (!title || !description) return res.status(400).json({ error: 'missing_fields' });
 
@@ -30,24 +14,27 @@ router.post('/create', upload.none(), async (req, res) => {
     const q = `INSERT INTO raffles (title, description, image_url, max_participants, auto_close_min, auto_close_date, created_by) 
                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
     const r = await db.query(q, [title, description, image_url, max_participants || null, auto_close_min || null, auto_close_date || null, created_by]);
-    
-    // Enviar para BOT via WS
-    sendToBot('create_raffle', {
-      id: r.rows[0].id,
-      title,
-      description,
-      image_url,
-      image_path: null
-    }).catch(err => console.error('Erro ao enviar para bot:', err));
+
+    try {
+      await sendRequest('create_raffle', {
+        id: r.rows[0].id,
+        title,
+        description,
+        image_url,
+        image_path: null
+      });
+    } catch (wsError) {
+      logger.warn('[Raffles] Sorteio criado no DB, mas falha ao avisar Bot:', wsError.message);
+    }
 
     res.json({ id: r.rows[0].id });
   } catch (err) {
+    logger.error('[Raffles] Erro ao criar:', err);
     res.status(500).json({ error: 'db_error', detail: err.message });
   }
 });
 
-// GET /api/raffle/list
-router.get('/list', async (req, res) => {
+router.get('/list', async (_req, res) => {
   try {
     const raffles = await db.query(`
       SELECT r.*, 
@@ -63,7 +50,6 @@ router.get('/list', async (req, res) => {
   }
 });
 
-// GET /api/raffle/:id
 router.get('/:id', async (req, res) => {
   const id = req.params.id;
   try {
@@ -76,13 +62,13 @@ router.get('/:id', async (req, res) => {
       GROUP BY r.id
     `, [id]);
     if (raffle.rows.length === 0) return res.status(404).json({ error: 'not_found' });
+
     res.json(raffle.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'db_error', detail: err.message });
   }
 });
 
-// PUT /api/raffle/:id/start
 router.put('/:id/start', async (req, res) => {
   const id = req.params.id;
   try {
@@ -93,10 +79,16 @@ router.put('/:id/start', async (req, res) => {
 
     await db.query('UPDATE raffles SET status = $1 WHERE id = $2', ['finished', id]);
 
-    sendToBot('raffle_winner', {
-      raffle_id: id,
-      winner: winner
-    }).catch(err => console.error('Erro ao enviar winner para bot:', err));
+    try {
+
+      sendRequest('raffle_winner', {
+        raffle_id: id,
+        winner: winner
+      });
+
+    } catch (wsError) {
+      logger.warn('[Raffles] Sorteio iniciado no DB, mas falha ao avisar Bot:', wsError.message);
+    }
 
     res.json({ winner });
   } catch (err) {
@@ -104,7 +96,6 @@ router.put('/:id/start', async (req, res) => {
   }
 });
 
-// POST /api/raffle/:id/add-participant
 router.post('/:id/add-participant', async (req, res) => {
   const { discord_id, discord_name, discord_tag } = req.body;
   const raffle_id = req.params.id;
@@ -146,7 +137,6 @@ router.post('/:id/add-participant', async (req, res) => {
   }
 });
 
-// DELETE /api/raffle/:id/remove-participant/:participantId
 router.delete('/:id/remove-participant/:participantId', async (req, res) => {
   const participantId = req.params.participantId;
   try {

@@ -1,19 +1,39 @@
+const packageJson = require('../package.json');
 const express = require('express');
 const router = express.Router();
-const botBans = require('./bot/bans');
-const botWarnings = require('./bot/warnings');
-const botUpReb = require('./bot/up_reb_logs');
-const botMemberprofile = require('./bot/memberprofile');
-const botGameSessions = require('./bot/game_sessions');
-const siteRaffles = require('./site/raffles');
-const siteRecruitment = require('./site/recruitment');
 
-router.use('/bot/bans', botBans);
-router.use('/bot/warnings', botWarnings);
-router.use('/bot/up_reb_logs', botUpReb);
-router.use('/bot/memberprofile', botMemberprofile);
-router.use('/bot/game_sessions', botGameSessions);
-router.use('/raffle', siteRaffles);
-router.use('/site/recruitment', siteRecruitment);
+// Health check
+router.get('/', (_req, res) => {
+  res.json({ 
+    success: true,
+    health: 'OK',
+    protected: true,
+    message: 'Official API Trindade Penumbra',
+    version: packageJson.version,
+    ram: process.memoryUsage().rss,
+    uptime: process.uptime()
+  });
+});
+
+router.use('/status', require('./site/status'));
+
+// Bot routes
+router.use('/bot/bans', require('./bot/bans'));
+router.use('/bot/warnings', require('./bot/warnings'));
+router.use('/bot/up_reb_logs', require('./bot/up_reb_logs'));
+router.use('/bot/memberprofile', require('./bot/memberprofile'));
+router.use('/bot/member_flow', require('./bot/member_flow'));
+
+// Site routes
+router.use('/site/raffle', require('./site/raffles'));
+router.use('/site/recruitment', require('./site/recruitment'));
+router.use('/site/server-data', require('./site/server-data'));
+router.use('/site/dashboard', require('./site/dashboard'));
+router.use('/site/embeds', require('./site/embeds'));
+router.use('/site/user_status', require('./site/user_status'));
+router.use('/site/upload', require('./site/upload'));
+router.use('/api/site/moderation', require('./site/moderation'));
+router.use('/site/componentsv2', require('./site/embeds'));
+router.use('/site/componentsV2', require('./site/componentsV2'));
 
 module.exports = router;

@@ -9,17 +9,15 @@ const SPECIAL_ROLE_ID = '1456401070375964857';
 
 router.get('/status', async (req, res) => {
   try {
-    const userId = req.query.user_id;
-    const cycleRes = await db.query('SELECT * FROM recruitment_cycles WHERE is_open = true ORDER BY created_at DESC LIMIT 1');
-    const currentCycle = cycleRes.rows[0];
 
+    const userId = req.query.user_id;
+    const cycleRes = await db.query('SELECT * FROM recruitment_cycles WHERE is_open = true AND id != 0 ORDER BY created_at DESC LIMIT 1');
+    const currentCycle = cycleRes.rows[0];
     let userStatus = null;
     let isSpecial = false;
 
     if (userId) {
-      
       const approvedRes = await db.query("SELECT * FROM recruitment_applications WHERE user_id = $1 AND status = 'APPROVED_PRACTICAL' LIMIT 1", [userId]);
-      
       if (approvedRes.rows.length > 0) {
          userStatus = approvedRes.rows[0];
       } else {
@@ -40,10 +38,10 @@ router.get('/status', async (req, res) => {
           try { userStatus.data = JSON.parse(userStatus.data); } catch(e) {}
       }
 
-      if (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN) {
+      const botToken = process.env.DISCORD_BOT_TOKEN;
+      if (botToken) {
         try {
-          const token = process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
-          const rest = new REST({ version: '10' }).setToken(token);
+          const rest = new REST({ version: '10' }).setToken(botToken);
           const member = await rest.get(Routes.guildMember(GUILD_ID, userId));
           if (member && member.roles && member.roles.includes(SPECIAL_ROLE_ID)) {
             isSpecial = true;
@@ -184,15 +182,16 @@ router.post('/cycle/close', async (req, res) => {
 router.get('/applications', async (req, res) => {
   try {
     const { all } = req.query;
-    
+
     let query = `
       SELECT ra.*, rc.is_open as cycle_is_open 
       FROM recruitment_applications ra
       JOIN recruitment_cycles rc ON ra.cycle_id = rc.id
+      WHERE ra.cycle_id != 0
     `;
     
     if (!all) {
-      query += ` WHERE ra.cycle_id = (SELECT id FROM recruitment_cycles ORDER BY created_at DESC LIMIT 1)`;
+      query += ` AND ra.cycle_id = (SELECT id FROM recruitment_cycles WHERE id != 0 ORDER BY created_at DESC LIMIT 1)`;
     }
     
     query += ` ORDER BY ra.created_at DESC`;
@@ -207,7 +206,7 @@ router.get('/applications', async (req, res) => {
 
 router.get('/history', async (req, res) => {
   try {
-    const cyclesRes = await db.query('SELECT * FROM recruitment_cycles WHERE is_open = false ORDER BY created_at DESC');
+    const cyclesRes = await db.query('SELECT * FROM recruitment_cycles WHERE is_open = false AND id != 0 ORDER BY created_at DESC');
     const cycles = cyclesRes.rows;
 
     const historyData = [];
@@ -389,11 +388,6 @@ router.get('/legacy-profile', async (req, res) => {
         const now = new Date();
         const daysInServer = (now.getTime() - joinedAt.getTime()) / (1000 * 60 * 60 * 24);
 
-        console.log(`[Legacy Check] User ${member.user.username} (Nick: ${member.nick})`);
-        console.log(`[Legacy Check] Has Official Role (${OFFICIAL_ROLE_ID}): ${hasRole}`);
-        console.log(`[Legacy Check] Joined At: ${joinedAt.toISOString()}`);
-        console.log(`[Legacy Check] Days in server: ${daysInServer.toFixed(2)}`);
-
         if (hasRole || daysInServer > 14) {
              legacyData = {
                 user_name: member.nick || member.user.username,
@@ -401,7 +395,7 @@ router.get('/legacy-profile', async (req, res) => {
                 user_game_id: null,
                 user_telephone: null,
                 user_shift: null,
-                approver_nick: 'Sistema (Membro Veterano)',
+                approver_nick: 'Padrinho',
                 approver_tag: 'SYSTEM'
             };
         }

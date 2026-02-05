@@ -1,166 +1,90 @@
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
-const logger = require('./utils/logger');
+const logger = require('logger');
+const chalk = require('chalk');
 
 const clients = new Map();
-
-const pending = new Map();
-const globalPending = new Map();
-
-const sendToBot = function(action, payload) {
-  return new Promise((resolve, reject) => {
-    const botId = clients.keys().next().value;
-    if (!botId) {
-      return reject(new Error('Nenhum bot conectado'));
-    }
-
-    const client = clients.get(botId);
-    if (!client || client.ws.readyState !== WebSocket.OPEN) {
-      return reject(new Error('Bot desconectado'));
-    }
-
-    const id = uuidv4();
-    const msg = {
-      type: 'request',
-      id,
-      action,
-      payload
-    };
-
-    // Timeout de 30s
-    const timeout = setTimeout(() => {
-      if (globalPending.has(id)) {
-        globalPending.delete(id);
-        reject(new Error('Timeout aguardando resposta do bot'));
-      }
-    }, 30000);
-
-    globalPending.set(id, { resolve, reject, timeout });
-    client.ws.send(JSON.stringify(msg));
-  });
-};
+const pendingRequests = new Map();
 
 function startWs(server) {
   const wss = new WebSocket.Server({ server, path: '/ws' });
 
-  wss.on('connection', (ws, req) => {
-    let authenticated = false;
+  wss.on('connection', (ws) => {
+    let isAuthenticated = false;
     let botId = null;
 
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
 
-        if (!authenticated) {
-          if (msg.type === 'auth' && msg.apiKey && msg.apiKey === process.env.API_KEY) {
-            authenticated = true;
+        if (!isAuthenticated) {
+          if (msg.type === 'auth' && msg.apiKey === process.env.API_KEY) {
+            isAuthenticated = true;
             botId = msg.botId || `bot_${uuidv4()}`;
-            clients.set(botId, { ws, info: { guilds: msg.guilds || [] } });
-            logger.log && logger.log(`[WS] Bot connected: ${botId} guildsCount:${(msg.guilds||[]).length}`);
-            try { logger.log && logger.log('[WS] connected bots:', Array.from(clients.keys())); } catch(e){}
+            clients.set(botId, ws);
+            
             ws.send(JSON.stringify({ type: 'auth_ok', botId }));
-            return;
+            logger.info(`${chalk.green('[WS SERVER]')} Bot conectado: ${botId}`);
+
+          } else {
+            ws.send(JSON.stringify({ type: 'auth_error' }));
+            ws.close();
           }
-          ws.send(JSON.stringify({ type: 'auth_error' }));
-          ws.close();
           return;
         }
 
         if (msg.type === 'response' && msg.id) {
-          const waiter = pending.get(msg.id);
-          if (waiter) {
-            clearTimeout(waiter.timeout);
-            pending.delete(msg.id);
-            if (msg.status === 'ok') waiter.resolve(msg.data);
-            else waiter.reject(new Error(msg.error || 'bot_error'));
-          }
-          
-          // Verificar globalPending (para requisições da API de embeds)
-          if (globalPending && globalPending.has(msg.id)) {
-            const globalWaiter = globalPending.get(msg.id);
-            if (globalWaiter) {
-              clearTimeout(globalWaiter.timeout);
-              globalPending.delete(msg.id);
-              if (msg.status === 'ok') globalWaiter.resolve(msg.data);
-              else globalWaiter.reject(new Error(msg.error || 'bot_error'));
+          const request = pendingRequests.get(msg.id);
+          if (request) {
+            clearTimeout(request.timeout);
+            pendingRequests.delete(msg.id);
+            if (msg.status === 'ok') {
+              request.resolve(msg.data);
+            } else {
+              request.reject(new Error(msg.error || 'Erro desconhecido no bot'));
             }
           }
-          return;
-        }
-
-        if (msg.type === 'event') {
-          logger.log && logger.log('[WS event]', msg.event, msg.payload);
-          return;
-        }
-
-        if (msg.type === 'server_data') {
-          // Bot enviando dados do servidor (roles, users, channels, emojis)
-          const botClientStore = require('./utils/botClientStore');
-          botClientStore.setServerData(botId, msg.data);
-          
-          // Invalidar cache da API quando receber dados novos
-          const serverDataRoute = require('./routes/site/server-data');
-          if (serverDataRoute.invalidateCache) {
-            serverDataRoute.invalidateCache();
-            console.log('[WS] Cache da API invalidado');
-          } else {
-            console.warn('[WS] Função invalidateCache não encontrada');
-          }
-          
-          logger.log && logger.log('[WS] Server data received and cache invalidated for', botId);
-          return;
         }
 
       } catch (err) {
-        logger.error && logger.error('[WS] message parse error', err && err.message ? err.message : err);
+        logger.error(`${chalk.red.bold('[WS SERVER]')} Erro no parse: ${err.message}`);
       }
     });
 
     ws.on('close', () => {
       if (botId) {
         clients.delete(botId);
-        
-        // Limpar dados do bot desconectado
-        const botClientStore = require('./utils/botClientStore');
-        botClientStore.removeServerData(botId);
-        
-        logger.log && logger.log(`[WS] Bot disconnected and data cleared: ${botId}`);
+        logger.warn(`${chalk.yellow.bold('[WS SERVER]')} Bot desconectado: ${botId}`);
       }
     });
   });
 
-  logger.log && logger.log('[WS] WebSocket server started on path /ws');
-
-  return {
-    clients,
-    globalPending,
-    getClients() {
-      return clients;
-    },
-    sendRequestToBot
-  };
+  logger.info(`${chalk.green('[WS SERVER]')} WebSocket pronto em /ws`);
 }
 
-function sendRequestToBot(botId, action, payload, timeout = 5000) {
-  const entry = clients.get(botId);
-  if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) throw new Error('bot_unavailable');
-  const id = uuidv4();
-  const req = { type: 'request', id, action, payload };
-  // logger.log && logger.log('[WS] sendRequestToBot ->', { botId, id, action, payload });
+function sendRequest(action, payload = {}, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error('timeout'));
-    }, timeout);
-    pending.set(id, { resolve, reject, timeout: t });
-    entry.ws.send(JSON.stringify(req));
+    const botId = clients.keys().next().value;
+    const ws = clients.get(botId);
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return reject(new Error('Nenhum bot conectado ao WebSocket.'));
+    }
+
+    const id = uuidv4();
+    const request = { type: 'request', id, action, payload };
+
+    const timeout = setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error('Timeout: O bot demorou muito para responder.'));
+      }
+    }, timeoutMs);
+
+    pendingRequests.set(id, { resolve, reject, timeout });
+
+    ws.send(JSON.stringify(request));
   });
 }
 
-module.exports = { 
-  startWs, 
-  getClients: () => clients,
-  sendRequestToBot,
-  sendToBot,
-  globalPending
-};
+module.exports = { startWs, sendRequest };
